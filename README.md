@@ -2,4 +2,4 @@
 
 Unpacks files from The Crew Motorfest's `.toc`/`.bfd` big files.
 
-**No keys are currently included. This should be used as a reference for the time being.**
+**No keys are currently included, therefore this is not in a currently usable state. This should be used as a reference for the time being.**
