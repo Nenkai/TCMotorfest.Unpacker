@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "TCMUnpack": {
+      "commandName": "Project",
+      "commandLineArgs": "D:\\Modding_Research\\Gran_Turismo\\Gran_Turismo_7\\Package\\TCM_Extr\\Image0\\data_orbis\\gfx_hawaii_landscape.toc \"aa\""
+    }
+  }
+}
