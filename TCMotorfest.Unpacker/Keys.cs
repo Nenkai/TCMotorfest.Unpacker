@@ -25,7 +25,7 @@ namespace TCMotorfest.Unpacker
             var lines = File.ReadAllLines("KeyTable.txt");
             foreach (var line in lines)
             {
-                if (string.IsNullOrEmpty(line))
+                if (string.IsNullOrEmpty(line) || line.StartsWith("//"))
                     continue;
 
                 string[] spl = line.Split('|');
@@ -56,7 +56,7 @@ namespace TCMotorfest.Unpacker
 
             foreach (var line in lines)
             {
-                if (string.IsNullOrEmpty(line))
+                if (string.IsNullOrEmpty(line) || line.StartsWith("//"))
                     continue;
 
                 string[] spl = line.Split('|');

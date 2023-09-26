@@ -9,7 +9,19 @@ using System.Runtime.InteropServices;
 
 namespace TCMotorfest.Unpacker.Crypto
 {
-    public record XTEAParameter(uint Rounds, uint DecryptSize, string Key);
+    public class XTEAParameter
+    {
+        public uint Rounds { get; set; }
+        public uint DecryptSize { get; set; }
+        public string Key { get; set; }
+
+        public XTEAParameter(uint Rounds, uint DecryptSize, string Key)
+        {
+            this.Rounds = Rounds;
+            this.DecryptSize = DecryptSize;
+            this.Key = Key;
+        }
+    }
 
     public class XTEADecryptor
     {

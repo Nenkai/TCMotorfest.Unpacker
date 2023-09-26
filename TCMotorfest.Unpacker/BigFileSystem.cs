@@ -83,6 +83,21 @@ namespace TCMotorfest.Unpacker
             Console.WriteLine();
         }
 
+        public void DumpAllHashes()
+        {
+            StreamWriter sw = new StreamWriter("Hashes/" + _bigFileName + ".txt");
+
+            foreach (var bank in Banks)
+            {
+                sw.WriteLine($"Bank [{bank.BigFileIndex}]");
+
+                foreach (var file in bank.FileInfos)
+                    sw.WriteLine($"{file.Value.Hash:X16}");
+                sw.WriteLine();
+            }
+            sw.Dispose();
+        }
+
         public void ExtractAll(string outputDir)
         {
             Console.WriteLine("Extracting files...");
@@ -239,12 +254,15 @@ namespace TCMotorfest.Unpacker
                 uint encryptedDataLength = bs.ReadUInt32() ^ 0x55555555;
 
                 byte[] data = bs.ReadBytes((int)encryptedDataLength);
-                
+
                 // Bruteforce
                 /*
                 int keyIndex = FindKey(data);
                 if (keyIndex == -1)
                     throw new Exception("Encryption key to use could not be determined - failed to decrypt"); */
+
+                if (_bigFileName == "localization")
+                    XTeaKey.DecryptSize = encryptedDataLength;
 
                 Decrypt(encryptionMethod, data, data, encryptedDataLength, "", XTeaKey);
 
@@ -339,12 +357,16 @@ namespace TCMotorfest.Unpacker
                 // This should be a callback rather than a function, meh
                 return XTEADecryptor.Decrypt(method, xteaParameter, input, output, length);
             }
-            else if (method == 0x2E524F58) // "XOR "
+            else if (method == 0x2E534541) // "AES."
+            {
+                throw new NotImplementedException("AES decryption not implemented (old build?)");
+            }
+            else if (method == 0x2E524F58) // "XOR."
             {
                 return XorDecrypt(method, input, output, length, xorKey);
             }
             else
-                throw new ArgumentException("Unknown decryption method");
+                throw new ArgumentException($"Unknown decryption method \"{Utils.MagicToString(method)}\"");
         }
 
         private static bool XorDecrypt(uint method, Span<byte> input, Span<byte> output, uint length, string xorKey)
