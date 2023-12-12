@@ -30,6 +30,18 @@ namespace TCMotorfest.Unpacker
                 var bigFile = new BigFileSystem();
                 bigFile.Init(args[0]);
                 bigFile.ExtractAll(args[1]);
+
+                /*
+                foreach (var file in Directory.GetFiles(args[0]))
+                {
+                    if (!file.EndsWith(".toc"))
+                        continue;
+
+                    var bigFile = new BigFileSystem();
+                    bigFile.Init(file);
+                    bigFile.DumpAllHashes();
+                }
+                */
             }
             catch (Exception e)
             {

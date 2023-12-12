@@ -15,6 +15,9 @@ namespace TCMotorfest.Unpacker
 
         public static List<XTEAParameter> XTEAKeyParameterTable = new();
 
+        public const string AES_IV = "hxE8MiHKgdOZjSPY";
+        public const string AES_KEY = "ZWdnSQmybpND6szV";
+
         public static void LoadKeys()
         {
             if (!File.Exists("KeyTable.txt"))

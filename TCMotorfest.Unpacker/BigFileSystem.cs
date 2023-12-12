@@ -8,8 +8,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Buffers;
 using System.Buffers.Binary;
-using System.Net.Sockets;
-using System.Threading;
+using System.Security.Cryptography;
 using TCMotorfest.Unpacker.Crypto;
 using TCMotorfest.Unpacker.Compression;
 
@@ -40,6 +39,7 @@ namespace TCMotorfest.Unpacker
         public DateTimeOffset Date { get; set; }
 
         private string _bigFileName;
+        private string _bigDataFileName;
         private string _filePath;
 
         public List<Bank> Banks { get; } = new();
@@ -52,13 +52,6 @@ namespace TCMotorfest.Unpacker
             var lines = File.ReadAllLines("FileNames.txt");
             foreach (var line in lines)
                 HashToPath.TryAdd(HashPath(line), line);
-
-            if (!Keys.NamesToParams.TryGetValue(_bigFileName + ".toc", out XTEAParameter keyParams))
-                throw new Exception($"Failed to find decryption key for {_bigFileName} - make sure not to rename the .toc file from the original.");
-
-            Console.WriteLine($"Using XTEA Key: {keyParams.Key} ({_bigFileName})");
-
-            XTeaKey = keyParams;
 
             using var fs = new FileStream(file, FileMode.Open);
             using var bs = new BinaryStream(fs, ByteConverter.Little);
@@ -75,8 +68,8 @@ namespace TCMotorfest.Unpacker
             Console.WriteLine($"- Compression: {Utils.MagicToString(DataCompressionMethod)}");
             Console.WriteLine($"- Date: {Date}");
 
-            string bigFileDataPath = Path.ChangeExtension(file, ".bfd");
-            if (!File.Exists(bigFileDataPath))
+            _bigDataFileName = Path.ChangeExtension(file, ".bfd");
+            if (!File.Exists(_bigDataFileName))
                 throw new FileNotFoundException("Big file data (.bfd) is missing alongside toc file");
 
             Console.WriteLine("Big File TOC loaded");
@@ -104,6 +97,7 @@ namespace TCMotorfest.Unpacker
 
             foreach (var bank in Banks)
             {
+                bank.InitStream(_bigDataFileName);
                 foreach (var info in bank.FileInfos.Values)
                 {
                     ExtractFile(outputDir, bank, info);
@@ -249,9 +243,19 @@ namespace TCMotorfest.Unpacker
             }
             else if (sec.Magic == 0x434F5445) // ETOC - Encrypted TOC
             {
-                Console.WriteLine("ETOC (Encrypted TOC) found, decrypting..");
                 uint encryptionMethod = bs.ReadUInt32() ^ 0x55555555;
                 uint encryptedDataLength = bs.ReadUInt32() ^ 0x55555555;
+                Console.WriteLine($"ETOC (Encrypted TOC) found, decrypting.. (method: {Utils.MagicToString(encryptionMethod)})");
+
+                if (encryptionMethod == 0x41455458)
+                {
+                    if (!Keys.NamesToParams.TryGetValue(_bigFileName + ".toc", out XTEAParameter keyParams))
+                        throw new Exception($"Failed to find decryption key for {_bigFileName} - make sure not to rename the .toc file from the original.");
+
+                    Console.WriteLine($"Using XTEA Key: {keyParams.Key} ({_bigFileName})");
+
+                    XTeaKey = keyParams;
+                }
 
                 byte[] data = bs.ReadBytes((int)encryptedDataLength);
 
@@ -274,11 +278,10 @@ namespace TCMotorfest.Unpacker
             }
             else if (sec.Magic == 0x434F5443) // CTOC - CompressedToc
             {
-                Console.WriteLine("CTOC (Compressed TOC) found, decompressing..");
-
                 uint compressionMethod = bs.ReadUInt32() ^ 0x55555555; // KRKN
                 uint compressedSize = bs.ReadUInt32() ^ 0x55555555;
                 uint decompressedSize = bs.ReadUInt32() ^ 0x55555555;
+                Console.WriteLine($"CTOC (Compressed TOC) found, decompressing.. (method: {Utils.MagicToString(compressionMethod)})");
 
                 byte[] compressedData = bs.ReadBytes((int)compressedSize);
                 byte[] decompressedBuffer = new byte[decompressedSize];
@@ -314,8 +317,6 @@ namespace TCMotorfest.Unpacker
                 string bigFileDataPath = Path.ChangeExtension(_filePath, bank.UsesSideBigFileMaybe == 1 ? $"b{bank.BigFileIndex:D2}" : "bfd");
                 Console.WriteLine($"Loading {Path.GetFileName(bigFileDataPath)}");
 
-                bank.InitStream(bigFileDataPath);
-
                 Banks.Add(bank);
             }
             else
@@ -349,7 +350,7 @@ namespace TCMotorfest.Unpacker
         /// <param name="length"></param>
         /// <param name="xteaParameter"></param>
         /// <exception cref="ArgumentException"></exception>
-        private bool Decrypt(uint method, Span<byte> input, Span<byte> output, uint length, string xorKey, XTEAParameter xteaParameter)
+        private bool Decrypt(uint method, byte[] input, byte[] output, uint length, string xorKey, XTEAParameter xteaParameter)
         {
             if (method == 0x41455458) // XTEA
             {
@@ -359,7 +360,8 @@ namespace TCMotorfest.Unpacker
             }
             else if (method == 0x2E534541) // "AES."
             {
-                throw new NotImplementedException("AES decryption not implemented (old build?)");
+                // Used in very old insider builds
+                return AesDecrypt(method, input, output, length);
             }
             else if (method == 0x2E524F58) // "XOR."
             {
@@ -369,9 +371,27 @@ namespace TCMotorfest.Unpacker
                 throw new ArgumentException($"Unknown decryption method \"{Utils.MagicToString(method)}\"");
         }
 
+        private static bool AesDecrypt(uint method, byte[] input, byte[] output, uint length)
+        {
+            if (method != 0x2E534541) // AES.
+                return false;
+
+            using Aes AES = Aes.Create();
+            AES.Padding = PaddingMode.None;
+            AES.Mode = CipherMode.CBC;
+            AES.KeySize = 128;
+            AES.BlockSize = 128;
+            AES.IV = Encoding.ASCII.GetBytes(Keys.AES_IV);
+            AES.Key = Encoding.ASCII.GetBytes(Keys.AES_KEY);
+
+            using ICryptoTransform enc = AES.CreateDecryptor(AES.IV, AES.Key);
+            enc.TransformBlock(input, 0, (int)(length &= 0xFFFFFFF0), output, 0);
+            return true;
+        }
+
         private static bool XorDecrypt(uint method, Span<byte> input, Span<byte> output, uint length, string xorKey)
         {
-            if (method != 0x2E524F58)
+            if (method != 0x2E524F58) // XOR.
                 return false;
 
             for (int i = 0; i < length; i++)
