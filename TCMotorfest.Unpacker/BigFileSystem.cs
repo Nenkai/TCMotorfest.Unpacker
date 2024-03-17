@@ -97,7 +97,10 @@ namespace TCMotorfest.Unpacker
 
             foreach (var bank in Banks)
             {
-                bank.InitStream(_bigDataFileName);
+                string bigFileDataPath = Path.ChangeExtension(_bigDataFileName, bank.UsesSideBigFileMaybe == 1 ? $"b{bank.BigFileIndex:D2}" : "bfd");
+                Console.WriteLine($"Loading {Path.GetFileName(_bigDataFileName)}");
+
+                bank.InitStream(bigFileDataPath);
                 foreach (var info in bank.FileInfos.Values)
                 {
                     ExtractFile(outputDir, bank, info);
@@ -156,7 +159,9 @@ namespace TCMotorfest.Unpacker
             if (fileInfo.Flags.HasFlag(FileFlags.Compressed))
             {
                 byte[] decompressed = new byte[fileInfo.Size];
-                Decompress(DataCompressionMethod, fileData, decompressed, fileInfo.Size);
+                if (!Decompress(DataCompressionMethod, fileData, decompressed, fileInfo.Size))
+                    throw new InvalidDataException("Failed to decompress file.");
+
                 fileData = decompressed;
             }
 
@@ -265,8 +270,8 @@ namespace TCMotorfest.Unpacker
                 if (keyIndex == -1)
                     throw new Exception("Encryption key to use could not be determined - failed to decrypt"); */
 
-                if (_bigFileName == "localization")
-                    XTeaKey.DecryptSize = encryptedDataLength;
+                //if (_bigFileName == "localization")
+                //    XTeaKey.DecryptSize = encryptedDataLength;
 
                 Decrypt(encryptionMethod, data, data, encryptedDataLength, "", XTeaKey);
 
@@ -313,10 +318,6 @@ namespace TCMotorfest.Unpacker
 
                 var bank = new Bank();
                 bank.Read(bs);
-
-                string bigFileDataPath = Path.ChangeExtension(_filePath, bank.UsesSideBigFileMaybe == 1 ? $"b{bank.BigFileIndex:D2}" : "bfd");
-                Console.WriteLine($"Loading {Path.GetFileName(bigFileDataPath)}");
-
                 Banks.Add(bank);
             }
             else
