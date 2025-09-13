@@ -506,8 +506,9 @@ public class BigFileSystem : IDisposable
         uint totalOutput = bs.ReadUInt32();
         uint maxDecompressedChunkSize = bs.ReadUInt32();
         uint numChunks = bs.ReadUInt32();
-        uint unkChunkRelated = bs.ReadUInt32(); // Weird values.. 0, 1, 2
-        bs.ReadUInt32(); // Empty
+        uint unkChunkRelated = bs.ReadUInt32(); // Not sure, not needed, might be buffering related
+        uint remDecompressedBytes = bs.ReadUInt32();
+
         //Debug.Assert(unkChunkRelated <= 2);
         Debug.Assert(decompressedSize == totalOutput, "Decompressed size from toc should match decompressed size from ZPBK header");
         var inflater = new ICSharpCode.SharpZipLib.Zip.Compression.Inflater();
@@ -540,6 +541,10 @@ public class BigFileSystem : IDisposable
             bs.Position = (long)zlibCompressedOffset + zlibCompressedChunkSize;
             bs.Align(0x10);
         }
+
+        // Remaining data that is too small length to be compressed, and is left raw at the bottom
+        if (remDecompressedBytes > 0)
+            numRead += bs.Read(output, numRead, (int)remDecompressedBytes);
 
         return numRead == totalOutput;
     }
