@@ -1,19 +1,14 @@
-﻿using Syroot.BinaryData;
-
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using System.Buffers;
-using System.Buffers.Binary;
-using System.Security.Cryptography;
+
 using TCMotorfest.Unpacker.Crypto;
 using TCMotorfest.Unpacker.Compression;
-using System.IO;
-using System.Numerics;
-using static System.Runtime.InteropServices.JavaScript.JSType;
+
+using Syroot.BinaryData;
 
 namespace TCMotorfest.Unpacker;
 

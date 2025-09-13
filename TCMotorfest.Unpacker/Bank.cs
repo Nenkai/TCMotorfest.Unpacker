@@ -28,12 +28,12 @@ public class Bank : IDisposable
         for (int i = 0; i < fileCount; i++)
         {
             var fileInfo = new FileInfo();
-            fileInfo.Hash = bs.ReadUInt64();
+            fileInfo.NameHash = bs.ReadUInt64();
             fileInfo.Offset = bs.ReadUInt64();
             fileInfo.CompressedSize = bs.ReadUInt32();
             fileInfo.Size = bs.ReadUInt32();
             fileInfo.Flags = (FileFlags)bs.ReadInt32();
-            FileInfos.Add(fileInfo.Hash, fileInfo);
+            FileInfos.Add(fileInfo.NameHash, fileInfo);
         }
     }
 

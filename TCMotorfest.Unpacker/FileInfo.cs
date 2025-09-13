@@ -8,7 +8,7 @@ namespace TCMotorfest.Unpacker
 {
     public class FileInfo
     {
-        public ulong Hash { get; set; }
+        public ulong NameHash { get; set; }
         public ulong Offset { get; set; }
         public uint CompressedSize { get; set; }
         public uint Size { get; set; }

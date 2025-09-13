@@ -1,5 +1,4 @@
-﻿using Syroot.BinaryData;
-
+﻿
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -13,6 +12,8 @@ using TCMotorfest.Unpacker.Crypto;
 using TCMotorfest.Unpacker.Compression;
 using System.IO;
 using System.Numerics;
+
+using Syroot.BinaryData;
 
 namespace TCMotorfest.Unpacker;
 
@@ -97,7 +98,7 @@ public class BigFileSystem : IDisposable
             sw.WriteLine($"Bank [{bank.BigFileIndex}]");
 
             foreach (var file in bank.FileInfos)
-                sw.WriteLine($"{file.Value.Hash:X16}");
+                sw.WriteLine($"{file.Value.NameHash:X16}");
             sw.WriteLine();
         }
         sw.Dispose();
@@ -116,15 +117,15 @@ public class BigFileSystem : IDisposable
             foreach (var info in bank.FileInfos.Values)
             {
                 string outputName;
-                if (HashToPath.TryGetValue(info.Hash, out string? value))
+                if (HashToPath.TryGetValue(info.NameHash, out string? value))
                 {
                     outputName = value;
                     Console.WriteLine($"[{i+1}/{bank.FileInfos.Count} {bigFileName}] Unpacking: {outputName}");
                 }
                 else
                 {
-                    outputName = $".unmapped/{info.Hash:X16}.bin";
-                    Console.WriteLine($"[{i+1}/{bank.FileInfos.Count}] {bigFileName} Unpacking unmapped: {info.Hash:X16}");
+                    outputName = $".unmapped/{info.NameHash:X16}.bin";
+                    Console.WriteLine($"[{i+1}/{bank.FileInfos.Count}] {bigFileName} Unpacking unmapped: {info.NameHash:X16}");
                 }
 
                 string outputPath = Path.Combine(outputDir, outputName);
@@ -143,13 +144,13 @@ public class BigFileSystem : IDisposable
     {
         foreach (var bank in Banks)
         {
-            if (bank.FileInfos.TryGetValue(hash, out FileInfo info))
+            if (bank.FileInfos.TryGetValue(hash, out FileInfo? info))
             {
                 string outputName;
-                if (HashToPath.TryGetValue(info.Hash, out string? value))
+                if (HashToPath.TryGetValue(info.NameHash, out string? value))
                     outputName = value;
                 else
-                    outputName = $".unmapped/{info.Hash:X16}.bin";
+                    outputName = $".unmapped/{info.NameHash:X16}.bin";
 
                 string outputPath = Path.Combine(outputDir, outputName);
 
@@ -189,10 +190,10 @@ public class BigFileSystem : IDisposable
 
         bank.Stream.Position = (long)fileInfo.Offset;
 
-        Directory.CreateDirectory(Path.GetDirectoryName(outputPath));
+        Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
 
         byte[] fileData = new byte[fileInfo.CompressedSize];
-        bank.Stream.Read(fileData, 0, (int)fileInfo.CompressedSize);
+        bank.Stream.ReadExactly(fileData, 0, (int)fileInfo.CompressedSize);
 
         if (fileInfo.Flags.HasFlag(FileFlags.Encrypted))
             Decrypt(DataEncryptionMethod, fileData, fileData, (uint)fileData.Length, XorKey, XTeaKey);
@@ -295,7 +296,7 @@ public class BigFileSystem : IDisposable
 
             if (encryptionMethod == 0x41455458)
             {
-                if (!Keys.NamesToParams.TryGetValue(_bigFileName + ".toc", out XTEAParameter keyParams))
+                if (!Keys.NamesToParams.TryGetValue(_bigFileName + ".toc", out XTEAParameter? keyParams))
                     throw new Exception($"Failed to find decryption key for {_bigFileName} - make sure not to rename the .toc file from the original.");
 
                 Console.WriteLine($"Using XTEA Key: {keyParams.Key} ({_bigFileName})");
@@ -381,10 +382,10 @@ public class BigFileSystem : IDisposable
             sw.WriteLine($"# Bank: {bigFileName} ({bank.FileInfos.Count} files)");
             foreach (var info in bank.FileInfos.Values)
             {
-                if (HashToPath.TryGetValue(info.Hash, out string? value))
-                    sw.WriteLine($"{value} - hash: {info.Hash:X16}, flags:{info.Flags}, offset: 0x{info.Offset:X}, size: 0x{info.Size:X}, zsize: 0x{info.CompressedSize:X}");
+                if (HashToPath.TryGetValue(info.NameHash, out string? value))
+                    sw.WriteLine($"{value} - hash: {info.NameHash:X16}, flags:{info.Flags}, offset: 0x{info.Offset:X}, size: 0x{info.Size:X}, zsize: 0x{info.CompressedSize:X}");
                 else
-                    sw.WriteLine($"{info.Hash:X16} - flags:{info.Flags}, offset: 0x{info.Offset:X}, size: 0x{info.Size:X}, zsize: 0x{info.CompressedSize:X}");
+                    sw.WriteLine($"{info.NameHash:X16} - flags:{info.Flags}, offset: 0x{info.Offset:X}, size: 0x{info.Size:X}, zsize: 0x{info.CompressedSize:X}");
             }
 
             sw.WriteLine();
@@ -468,6 +469,7 @@ public class BigFileSystem : IDisposable
         return true;
     }
 
+    // TODO! Make this chunked!
     /// <summary>
     /// Decompresses data
     /// </summary>
@@ -481,8 +483,65 @@ public class BigFileSystem : IDisposable
     {
         if (method == 0x4E4B524B) // KRKN
             return Oodle.Decompress(input, output, decompressedSize);
+        else if (method == 0x4B42505A) // ZPBK, Xbox Series (Scarlett)
+            return DecompressDStorageZlib(input, output, decompressedSize);
         else
             throw new ArgumentException("Unknown decompression method");
+    }
+
+    // NOTE: The game uses IDStorageQueueX::EnqueueRequest for this, with the ZlibDecompress and DSTORAGE_REQUEST_SOURCE_MEMORY flag
+    private static bool DecompressDStorageZlib(byte[] input, byte[] output, uint decompressedSize)
+    {
+        var ms = new MemoryStream(input);
+        var bs = new BinaryStream(ms);
+        if (input.Length < 0x30)
+            throw new InvalidDataException("ZPBK header can not fit in compressed buffer.");
+
+        uint magic = bs.ReadUInt32();
+        if (magic != 0x4b42505a) // ZPBK. ZLib Packed/Partial Block?
+            throw new InvalidDataException($"Compressed buffer magic did not match ZPBK. Got '{magic:X8}'");
+
+        uint unk = bs.ReadUInt32(); // Always 0?
+        uint totalInput = bs.ReadUInt32(); // Includes header
+        uint totalOutput = bs.ReadUInt32();
+        uint maxDecompressedChunkSize = bs.ReadUInt32();
+        uint numChunks = bs.ReadUInt32();
+        uint unkChunkRelated = bs.ReadUInt32(); // Weird values.. 0, 1, 2
+        bs.ReadUInt32(); // Empty
+        //Debug.Assert(unkChunkRelated <= 2);
+        Debug.Assert(decompressedSize == totalOutput, "Decompressed size from toc should match decompressed size from ZPBK header");
+        var inflater = new ICSharpCode.SharpZipLib.Zip.Compression.Inflater();
+
+        int numRead = 0;
+        for (int i = 0; i < numChunks; i++)
+        {
+            uint zlibCompressedChunkSize = bs.ReadUInt32();
+            uint zlibDecompressedChunkSize = bs.ReadUInt32();
+            uint zlibCompressedOffset = bs.ReadUInt32();
+            uint outputOffset = bs.ReadUInt32();
+
+            bs.Position = zlibCompressedOffset;
+
+            // 2025 and ZLibStream still can't read chunks in full. It reads 0x7000-ish bytes of localization.bfd instead of 0x40000.
+            /*
+            var zlibStream = new ZLibStream(bs, CompressionMode.Decompress);
+            int read = zlibStream.Read(output.AsSpan((int)outputOffset, (int)zlibDecompressedChunkSize));
+            */
+
+            // Fallback to SharpZipLib.
+            inflater.SetInput(input, (int)zlibCompressedOffset, (int)zlibCompressedChunkSize);
+            int read = inflater.Inflate(output, (int)outputOffset, (int)zlibDecompressedChunkSize);
+            if (read != zlibDecompressedChunkSize)
+                throw new InvalidDataException($"Failed to decompress zlib chunk {i + 1} of {numChunks} - read: {read}, expected: {zlibDecompressedChunkSize}");
+            inflater.Reset();
+
+            numRead += read;
+
+            bs.Position = (long)zlibCompressedOffset + zlibCompressedChunkSize;
+            bs.Align(0x10);
+        }
+
+        return numRead == totalOutput;
     }
 
 
